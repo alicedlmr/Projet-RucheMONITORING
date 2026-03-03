@@ -1,0 +1,56 @@
+function decodeUplink(input) {
+  var data = {};
+  data.key = "xeusz84ejntuzftd";
+
+  function s16(msb, lsb) {
+    var v = (msb << 8) | lsb;
+    if (v > 32767) v = v - 65536;
+    return v;
+  }
+
+  // 0..1 : DS18B20 #1 (tInt1)
+  var tInt1_raw = s16(input.bytes[0], input.bytes[1]);
+  data.t_int1 = (tInt1_raw === 32767) ? null : (tInt1_raw / 10.0);
+
+  // 2..3 : DS18B20 #2 (tInt2)
+  var tInt2_raw = s16(input.bytes[2], input.bytes[3]);
+  data.t_int2 = (tInt2_raw === 32767) ? null : (tInt2_raw / 10.0);
+
+  // 4..5 : DHT1 temp
+  var t1_raw = s16(input.bytes[4], input.bytes[5]);
+  data.t1 = (t1_raw === 32767) ? null : (t1_raw / 10.0);
+
+  // 6..7 : DHT1 hum
+  var h1_raw = s16(input.bytes[6], input.bytes[7]);
+  data.h1 = (h1_raw === 32767) ? null : (h1_raw / 10.0);
+
+  // 8..9 : DHT2 temp
+  var t2_raw = s16(input.bytes[8], input.bytes[9]);
+  data.t2 = (t2_raw === 32767) ? null : (t2_raw / 10.0);
+
+  // 10..11 : DHT2 hum
+  var h2_raw = s16(input.bytes[10], input.bytes[11]);
+  data.h2 = (h2_raw === 32767) ? null : (h2_raw / 10.0);
+
+  // 12..13 : Lux
+  var lux_raw = (input.bytes[12] << 8) | input.bytes[13];
+  data.Light = lux_raw;
+
+  // 14..15 : Poids (kg *100)
+  var w_raw = s16(input.bytes[14], input.bytes[15]);
+  data.weight = w_raw / 100.0;
+
+  // 16 : Batterie %
+  data.bat = input.bytes[16];
+
+  // 17..18 : VBAT mV
+  var vbat_raw = (input.bytes[17] << 8) | input.bytes[18];
+  data.vbat_mv = vbat_raw;
+  data.vbat = vbat_raw / 1000.0;
+
+  return {
+    data: data,
+    warnings: [],
+    errors: []
+  };
+}
