@@ -40,9 +40,7 @@ const int   VBAT_SAMPLES = 30;
 #define RX2_PIN 16
 #define TX2_PIN 17
 
-// Remplacement LED -> BUZZER (même pin GPIO23)
 #define BUZZER_PIN 23
-const int BUZZ_CH = 0;
 
 const uint32_t SLEEP_PERIOD_SEC = 30;
 const int16_t SENTINEL_I16 = 32767;
@@ -63,41 +61,39 @@ DHT dht1(DHT1_PIN, DHTTYPE);
 DHT dht2(DHT2_PIN, DHTTYPE);
 
 // =============================================================
-// BUZZER : melodie uniquement au premier démarrage
+// BUZZER (core ESP32 3.x.x) : melodie uniquement au premier boot
 // =============================================================
 
-void buzzerInit() {
-  ledcAttachPin(BUZZER_PIN, BUZZ_CH);
-  ledcWriteTone(BUZZ_CH, 0);
-}
-
-void buzzerTone(int freq, int durationMs, int pauseMs) {
+void playTone(int freq, int durationMs, int pauseMs) {
   if (freq <= 0) {
-    ledcWriteTone(BUZZ_CH, 0);
+    ledcWrite(BUZZER_PIN, 0);
     delay(durationMs + pauseMs);
     return;
   }
-  ledcWriteTone(BUZZ_CH, freq);
+  ledcWriteTone(BUZZER_PIN, freq);
   delay(durationMs);
-  ledcWriteTone(BUZZ_CH, 0);
+  ledcWrite(BUZZER_PIN, 0);
   delay(pauseMs);
 }
 
-void buzzerMelodyStartup() {
-  // Petit jingle : montée + descente (agréable, pas trop agressif)
-  buzzerTone(659, 120, 20);  // E5
-  buzzerTone(784, 120, 20);  // G5
-  buzzerTone(988, 140, 30);  // B5
-  buzzerTone(1319, 180, 50); // E6
+void playMelodyStartup() {
+  playTone(659, 120, 20);   // E5
+  playTone(784, 120, 20);   // G5
+  playTone(988, 140, 30);   // B5
+  playTone(1319, 180, 50);  // E6
+  playTone(1175, 120, 20);  // D6
+  playTone(1047, 120, 20);  // C6
+  playTone(988,  140, 30);  // B5
+  playTone(784,  220, 80);  // G5
+}
 
-  buzzerTone(1175, 120, 20); // D6
-  buzzerTone(1047, 120, 20); // C6
-  buzzerTone(988,  140, 30); // B5
-  buzzerTone(784,  220, 80); // G5 (finale)
+void buzzerInit() {
+  ledcAttach(BUZZER_PIN, 2000, 10);
+  ledcWrite(BUZZER_PIN, 0);
 }
 
 void buzzerOff() {
-  ledcWriteTone(BUZZ_CH, 0);
+  ledcWrite(BUZZER_PIN, 0);
 }
 
 // =============================================================
@@ -129,22 +125,20 @@ void setupTempInt() {
   sensors.begin();
   int count = sensors.getDeviceCount();
 
+  ds18_1_ok = false;
+  ds18_2_ok = false;
+
   if (count >= 1) {
     if (sensors.getAddress(tempDeviceAddress1, 0)) {
       sensors.setResolution(tempDeviceAddress1, 12);
       ds18_1_ok = true;
     }
-  } else {
-    ds18_1_ok = false;
   }
-
   if (count >= 2) {
     if (sensors.getAddress(tempDeviceAddress2, 1)) {
       sensors.setResolution(tempDeviceAddress2, 12);
       ds18_2_ok = true;
     }
-  } else {
-    ds18_2_ok = false;
   }
 }
 
@@ -288,7 +282,6 @@ int getBatteryPercent() {
 TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
   while (Serial2.available()) Serial2.read();
 
-  // Plus de HIGH/LOW (LED) -> aucun son ici
   Serial2.print("AT+MSGHEX=\"");
   Serial2.print(payloadHex);
   Serial2.println("\"");
@@ -320,10 +313,13 @@ TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
     acc.replace("\r", "");
     Serial.print(acc);
   }
+
   return r;
 }
 
-bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val, int16_t tDht1Val, int16_t hDht1Val, int16_t tDht2Val, int16_t hDht2Val, uint16_t luxVal, int16_t poidsVal, uint8_t batPercent, uint16_t vbat_mV) {
+bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val, int16_t tDht1Val, int16_t hDht1Val,
+                        int16_t tDht2Val, int16_t hDht2Val, uint16_t luxVal, int16_t poidsVal,
+                        uint8_t batPercent, uint16_t vbat_mV) {
   char payload[80];
   sprintf(payload, "%04X%04X%04X%04X%04X%04X%04X%04X%02X%04X",
           (uint16_t)tInt1Val, (uint16_t)tInt2Val,
@@ -360,7 +356,7 @@ void setup() {
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
     Serial.println("\n--- DEMARRAGE COMPLET ---");
-    buzzerMelodyStartup();   // uniquement au 1er démarrage
+    playMelodyStartup();
   } else {
     Serial.println("\n--- REVEIL DEEP SLEEP ---");
   }
