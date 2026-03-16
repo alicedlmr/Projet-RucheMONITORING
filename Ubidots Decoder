@@ -1,0 +1,26 @@
+async function formatPayload(args){
+  var ubidots_payload = {};
+
+  // 1. Récupération du RSSI (Ce que le prof a demandé !)
+  var gateways = args['uplink_message']['rx_metadata'];
+  if (gateways) {
+    for (const i in gateways) {  
+      var gw = gateways[i];
+      // Cela va créer une variable "rssi" toute propre sur Ubidots
+      ubidots_payload['rssi'] = gw['rssi']; 
+      ubidots_payload['snr'] = gw['snr'];
+    }
+  }
+  
+  // 2. On récupère les données (poids, temp...) DÉJÀ décodées par The Things Network
+  var decoded_payload = args['uplink_message']['decoded_payload'];
+ 
+  // 3. On fusionne le RSSI et les données de la ruche
+  if (decoded_payload) {
+    Object.assign(ubidots_payload, decoded_payload);
+  }
+  
+  return ubidots_payload;
+}
+
+module.exports = { formatPayload };
