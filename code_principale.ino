@@ -9,13 +9,20 @@
 #include "esp_bt.h"
 #include "esp_sleep.h"
 
-struct TxResult { bool done; bool joinNeeded; };
+struct TxResult {
+  bool done;
+  bool joinNeeded;
+};
+
+// =============================================================
+// 1) CONFIGURATION
+// =============================================================
 
 #define LOADSW_PIN 2
 
-// Optimisation : réduire le temps actif (ajuste si besoin)
-const int SENSOR_POWER_ON_DELAY_MS = 500;   // avant: 800
-const int DHT_POWER_ON_DELAY_MS    = 800;   // avant: 1500
+// Optimisation temps actif (ajuste si un capteur devient instable)
+const int SENSOR_POWER_ON_DELAY_MS = 500;   // avant 800
+const int DHT_POWER_ON_DELAY_MS    = 800;   // avant 1500
 
 #define HX711_DOUT 25
 #define HX711_SCK  26
@@ -33,7 +40,7 @@ const int   SCALE_SIGN   = 1;
 #define DHTTYPE DHT22
 
 #define VBAT_PIN 35
-const float VBAT_RATIO = 1.435f;
+const float VBAT_RATIO   = 1.435f;
 const int   VBAT_SAMPLES = 30;
 
 #define RX2_PIN 16
@@ -42,9 +49,13 @@ const int   VBAT_SAMPLES = 30;
 #define BUZZER_PIN 23
 
 const uint32_t SLEEP_PERIOD_SEC = 30;
-const int16_t  SENTINEL_I16 = 32767;
+const int16_t  SENTINEL_I16     = 32767;
 
 RTC_DATA_ATTR bool loraJoined = false;
+
+// =============================================================
+// 2) OBJETS
+// =============================================================
 
 HX711 scale;
 BH1750 lightMeter;
@@ -60,8 +71,9 @@ DHT dht1(DHT1_PIN, DHTTYPE);
 DHT dht2(DHT2_PIN, DHTTYPE);
 
 // =============================================================
-// BUZZER (ESP32 core 3.x.x) : melodie uniquement au premier boot
+// 3) BUZZER (core ESP32 3.x.x) : mélodie uniquement premier boot
 // =============================================================
+
 void playTone(int freq, int durationMs, int pauseMs) {
   if (freq <= 0) {
     ledcWrite(BUZZER_PIN, 0);
@@ -95,16 +107,16 @@ void buzzerOff() {
 }
 
 // =============================================================
-// Helpers conversion (négatifs OK)
+// 4) HELPERS ENCODAGE (températures négatives OK)
 // =============================================================
+
 int16_t to_i16_scaled(float v, float scale, int16_t sentinel) {
   if (isnan(v)) return sentinel;
 
-  // Arrondi correct y compris pour valeurs négatives
   long x = lroundf(v * scale);
 
-  // clamp int16
-  if (x > 32766) x = 32766;      // évite collision avec sentinel 32767
+  // éviter collision avec la sentinelle 32767
+  if (x > 32766) x = 32766;
   if (x < -32768) x = -32768;
 
   return (int16_t)x;
@@ -116,6 +128,8 @@ uint16_t to_u16_clamped(float v) {
   return (uint16_t)lroundf(v);
 }
 
+// =============================================================
+// 5) POWER / CAPTEURS
 // =============================================================
 
 void setupLoadSwitch() {
@@ -148,7 +162,7 @@ void setupTempInt() {
   ds18_1_ok = false;
   ds18_2_ok = false;
 
-  // Optimisation : 10 bits (rapide)
+  // Optimisation : résolution 10 bits (plus rapide, négatifs OK)
   const uint8_t RES = 10;
 
   if (count >= 1) {
@@ -157,6 +171,7 @@ void setupTempInt() {
       ds18_1_ok = true;
     }
   }
+
   if (count >= 2) {
     if (sensors.getAddress(tempDeviceAddress2, 1)) {
       sensors.setResolution(tempDeviceAddress2, RES);
@@ -182,6 +197,10 @@ void initAllSensorsAfterPowerOn() {
   setupDHT();
   delay(DHT_POWER_ON_DELAY_MS);
 }
+
+// =============================================================
+// 6) LORA (AT)
+// =============================================================
 
 String readLine(uint32_t timeoutMs) {
   uint32_t t0 = millis();
@@ -211,9 +230,11 @@ bool joinNetwork(uint32_t timeoutMs) {
     if (line.length()) {
       Serial.println(line);
       String up = line; up.toUpperCase();
+
       if (up.indexOf("JOINED ALREADY") >= 0) return true;
       if (up.indexOf("+JOIN: JOINED") >= 0) return true;
       if (up.indexOf("JOIN") >= 0 && (up.indexOf("DONE") >= 0 || up.indexOf("SUCCESS") >= 0 || up.indexOf("JOINED") >= 0)) return true;
+
       if (up.indexOf("FAIL") >= 0 || up.indexOf("DENIED") >= 0 || up.indexOf("NO FREE") >= 0) return false;
     }
   }
@@ -230,20 +251,23 @@ void setupLoRa() {
   Serial2.begin(9600, SERIAL_8N1, RX2_PIN, TX2_PIN);
   delay(150);
 
-  // Test modem
   Serial2.println("AT");
   delay(150);
   while (Serial2.available()) Serial2.read();
 
-  // Optimisation radio : activer ADR (si firmware Seeed LoRa-E5)
-  Serial2.println("AT+ADR=ON");   //  [oai_citation:1‡wiki.seeedstudio.com](https://wiki.seeedstudio.com/LoRa_E5_mini/?utm_source=chatgpt.com)
+  // Optimisation radio : activer ADR (si supporté par ton firmware LoRa-E5)
+  Serial2.println("AT+ADR=ON");
   delay(150);
   while (Serial2.available()) Serial2.read();
 }
 
+// =============================================================
+// 7) LECTURES
+// =============================================================
+
 float getWeight() {
-  // Optimisation : moins d’échantillons
-  const int n = 5; // avant: 10
+  // Optimisation : moins d'échantillons
+  const int n = 5; // avant 10
   long sum = 0;
   for (int i = 0; i < n; i++) {
     while (!scale.is_ready()) delay(5);
@@ -299,6 +323,12 @@ int getBatteryPercent() {
   return 0;
 }
 
+// =============================================================
+// 8) ENVOI LORA : PAYLOAD SANS VBAT_mV (17 octets)
+// Format HEX:
+// tInt1,tInt2,tDht1,hDht1,tDht2,hDht2,lux,poids,bat%
+// =============================================================
+
 TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
   while (Serial2.available()) Serial2.read();
 
@@ -327,6 +357,7 @@ TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
     acc.replace("\r", "");
     Serial.print(acc);
   }
+
   return r;
 }
 
@@ -334,14 +365,16 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
                         int16_t tDht1Val, int16_t hDht1Val,
                         int16_t tDht2Val, int16_t hDht2Val,
                         uint16_t luxVal, int16_t poidsVal,
-                        uint8_t batPercent, uint16_t vbat_mV) {
+                        uint8_t batPercent) {
   char payload[80];
-  sprintf(payload, "%04X%04X%04X%04X%04X%04X%04X%04X%02X%04X",
+
+  // 17 octets : 8 champs uint16/int16 + 1 champ uint8
+  sprintf(payload, "%04X%04X%04X%04X%04X%04X%04X%04X%02X",
           (uint16_t)tInt1Val, (uint16_t)tInt2Val,
           (uint16_t)tDht1Val, (uint16_t)hDht1Val,
           (uint16_t)tDht2Val, (uint16_t)hDht2Val,
           luxVal, (uint16_t)poidsVal,
-          batPercent, vbat_mV);
+          batPercent);
 
   Serial.print("Payload LoRa : ");
   Serial.println(payload);
@@ -359,17 +392,23 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
   return r.done;
 }
 
+// =============================================================
+// 9) SETUP / LOOP
+// =============================================================
+
 void setup() {
   Serial.begin(115200);
   delay(200);
 
   buzzerInit();
 
+  // Mélodie uniquement au premier démarrage (pas aux réveils deep sleep)
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
     playMelodyStartup();
   }
 
+  // Low power : WiFi + BT OFF
   WiFi.mode(WIFI_OFF);
   btStop();
 
@@ -388,8 +427,7 @@ void loop() {
   float tDHT1, hDHT1, tDHT2, hDHT2;
   getDHT(tDHT1, hDHT1, tDHT2, hDHT2);
 
-  float vbat = getBatteryVoltage();
-  int batP   = getBatteryPercent();
+  int batP = getBatteryPercent();
 
   float tInt1 = DEVICE_DISCONNECTED_C;
   float tInt2 = DEVICE_DISCONNECTED_C;
@@ -408,7 +446,14 @@ void loop() {
   bool okDHT1 = (!isnan(tDHT1) && !isnan(hDHT1));
   bool okDHT2 = (!isnan(tDHT2) && !isnan(hDHT2));
 
-  // Encodage : températures négatives OK (int16)
+  Serial.print("DS18B20 (1) : "); Serial.println((tInt1 != DEVICE_DISCONNECTED_C) ? String(tInt1) + " C" : "Err");
+  Serial.print("DS18B20 (2) : "); Serial.println((tInt2 != DEVICE_DISCONNECTED_C) ? String(tInt2) + " C" : "Err");
+  Serial.print("DHT22 (P27) : "); Serial.println(okDHT1 ? String(tDHT1) + " C | " + String(hDHT1) + " %" : "Err");
+  Serial.print("DHT22 (P19) : "); Serial.println(okDHT2 ? String(tDHT2) + " C | " + String(hDHT2) + " %" : "Err");
+  Serial.print("BH1750      : "); Serial.println(String(lux) + " lux");
+  Serial.print("HX711       : "); Serial.println(String(poids, 3) + " kg");
+  Serial.print("BATT        : "); Serial.println(String(batP) + " %");
+
   int16_t tInt1Val = (tInt1 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt1, 10.0f, SENTINEL_I16) : SENTINEL_I16;
   int16_t tInt2Val = (tInt2 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
 
@@ -418,26 +463,25 @@ void loop() {
   int16_t tDht2Val = okDHT2 ? to_i16_scaled(tDHT2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
   int16_t hDht2Val = okDHT2 ? to_i16_scaled(hDHT2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
 
-  uint16_t luxVal  = to_u16_clamped(lux);
-  int16_t  poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16); // kg*100, négatif OK
-
-  int vbat_mV_i = (int)lroundf(vbat * 1000.0f);
-  if (vbat_mV_i < 0) vbat_mV_i = 0;
-  if (vbat_mV_i > 65535) vbat_mV_i = 65535;
-  uint16_t vbat_mV = (uint16_t)vbat_mV_i;
+  uint16_t luxVal   = to_u16_clamped(lux);
+  int16_t  poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16); // kg*100, négatifs OK
 
   uint8_t batPercent = (batP < 0) ? 0 : (batP > 100) ? 100 : (uint8_t)batP;
 
-  if (!loraJoined) loraJoined = joinNetwork(30000);
+  if (!loraJoined) {
+    loraJoined = joinNetwork(30000);
+  }
 
   if (loraJoined) {
     envoyerDonneesLoRa(tInt1Val, tInt2Val, tDht1Val, hDht1Val, tDht2Val, hDht2Val,
-                       luxVal, poidsVal, batPercent, vbat_mV);
+                       luxVal, poidsVal, batPercent);
   }
 
   powerSensorsOff();
   loraLowPower();
   buzzerOff();
+
+  Serial.flush();
 
   esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_PERIOD_SEC * 1000000ULL);
   esp_deep_sleep_start();
