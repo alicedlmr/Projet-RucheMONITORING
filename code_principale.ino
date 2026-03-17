@@ -15,14 +15,28 @@ struct TxResult {
 };
 
 // =============================================================
+// 0) MODE SILENCIEUX (réduit le temps awake)
+//    0 = silencieux (mesure conso) / 1 = debug
+// =============================================================
+#define DEBUG_LOG 0
+#if DEBUG_LOG
+  #define DBG_BEGIN(x) Serial.begin(x)
+  #define DBG_PRINT(x) Serial.print(x)
+  #define DBG_PRINTLN(x) Serial.println(x)
+#else
+  #define DBG_BEGIN(x) do { } while(0)
+  #define DBG_PRINT(x) do { } while(0)
+  #define DBG_PRINTLN(x) do { } while(0)
+#endif
+
+// =============================================================
 // 1) CONFIGURATION
 // =============================================================
 
 #define LOADSW_PIN 2
 
-// Optimisation temps actif (ajuste si un capteur devient instable)
-const int SENSOR_POWER_ON_DELAY_MS = 500;   // avant 800
-const int DHT_POWER_ON_DELAY_MS    = 800;   // avant 1500
+const int SENSOR_POWER_ON_DELAY_MS = 500;
+const int DHT_POWER_ON_DELAY_MS    = 800;
 
 #define HX711_DOUT 25
 #define HX711_SCK  26
@@ -53,6 +67,10 @@ const int16_t  SENTINEL_I16     = 32767;
 
 RTC_DATA_ATTR bool loraJoined = false;
 
+// Optimisation : timeouts LoRa plus courts
+const uint32_t LORA_JOIN_TIMEOUT_MS = 30000;
+const uint32_t LORA_TX_TIMEOUT_MS   = 12000;  // avant 30000
+
 // =============================================================
 // 2) OBJETS
 // =============================================================
@@ -71,7 +89,7 @@ DHT dht1(DHT1_PIN, DHTTYPE);
 DHT dht2(DHT2_PIN, DHTTYPE);
 
 // =============================================================
-// 3) BUZZER (core ESP32 3.x.x) : mélodie uniquement premier boot
+// 3) BUZZER : mélodie uniquement premier boot
 // =============================================================
 
 void playTone(int freq, int durationMs, int pauseMs) {
@@ -115,7 +133,6 @@ int16_t to_i16_scaled(float v, float scale, int16_t sentinel) {
 
   long x = lroundf(v * scale);
 
-  // éviter collision avec la sentinelle 32767
   if (x > 32766) x = 32766;
   if (x < -32768) x = -32768;
 
@@ -129,7 +146,32 @@ uint16_t to_u16_clamped(float v) {
 }
 
 // =============================================================
-// 5) POWER / CAPTEURS
+// 5) BACK-POWERING : mettre les pins capteurs en Hi-Z quand OFF
+// =============================================================
+
+void sensorPinsHiZ() {
+  pinMode(I2C_SDA, INPUT);
+  pinMode(I2C_SCL, INPUT);
+  pinMode(DHT1_PIN, INPUT);
+  pinMode(DHT2_PIN, INPUT);
+  pinMode(ONE_WIRE_BUS, INPUT);
+  pinMode(HX711_DOUT, INPUT);
+  pinMode(HX711_SCK, INPUT);
+}
+
+void sensorPinsNormal() {
+  // On laisse les bibliothèques reconfigurer, mais on évite les OUTPUT résiduels
+  pinMode(I2C_SDA, INPUT);
+  pinMode(I2C_SCL, INPUT);
+  pinMode(DHT1_PIN, INPUT);
+  pinMode(DHT2_PIN, INPUT);
+  pinMode(ONE_WIRE_BUS, INPUT);
+  pinMode(HX711_DOUT, INPUT);
+  pinMode(HX711_SCK, INPUT);
+}
+
+// =============================================================
+// 6) POWER / CAPTEURS
 // =============================================================
 
 void setupLoadSwitch() {
@@ -162,7 +204,6 @@ void setupTempInt() {
   ds18_1_ok = false;
   ds18_2_ok = false;
 
-  // Optimisation : résolution 10 bits (plus rapide, négatifs OK)
   const uint8_t RES = 10;
 
   if (count >= 1) {
@@ -199,7 +240,7 @@ void initAllSensorsAfterPowerOn() {
 }
 
 // =============================================================
-// 6) LORA (AT)
+// 7) LORA (AT)
 // =============================================================
 
 String readLine(uint32_t timeoutMs) {
@@ -217,7 +258,7 @@ String readLine(uint32_t timeoutMs) {
         line += c;
       }
     }
-    delay(5);
+    delay(3);
   }
   return "";
 }
@@ -226,9 +267,9 @@ bool joinNetwork(uint32_t timeoutMs) {
   Serial2.println("AT+JOIN");
   uint32_t t0 = millis();
   while (millis() - t0 < timeoutMs) {
-    String line = readLine(800);
+    String line = readLine(700);
     if (line.length()) {
-      Serial.println(line);
+      DBG_PRINTLN(line);
       String up = line; up.toUpperCase();
 
       if (up.indexOf("JOINED ALREADY") >= 0) return true;
@@ -249,25 +290,23 @@ void loraLowPower() {
 
 void setupLoRa() {
   Serial2.begin(9600, SERIAL_8N1, RX2_PIN, TX2_PIN);
-  delay(150);
+  delay(120);
 
   Serial2.println("AT");
-  delay(150);
+  delay(120);
   while (Serial2.available()) Serial2.read();
 
-  // Optimisation radio : activer ADR (si supporté par ton firmware LoRa-E5)
   Serial2.println("AT+ADR=ON");
-  delay(150);
+  delay(120);
   while (Serial2.available()) Serial2.read();
 }
 
 // =============================================================
-// 7) LECTURES
+// 8) LECTURES
 // =============================================================
 
 float getWeight() {
-  // Optimisation : moins d'échantillons
-  const int n = 5; // avant 10
+  const int n = 5;
   long sum = 0;
   for (int i = 0; i < n; i++) {
     while (!scale.is_ready()) delay(5);
@@ -324,9 +363,7 @@ int getBatteryPercent() {
 }
 
 // =============================================================
-// 8) ENVOI LORA : PAYLOAD SANS VBAT_mV (17 octets)
-// Format HEX:
-// tInt1,tInt2,tDht1,hDht1,tDht2,hDht2,lux,poids,bat%
+// 9) ENVOI LORA (17 octets) + timeout réduit
 // =============================================================
 
 TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
@@ -350,13 +387,15 @@ TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
       if (up.indexOf("+MSGHEX: DONE") >= 0 || up.indexOf("DONE") >= 0) { r.done = true; break; }
     }
     if (r.done) break;
-    delay(5);
+    delay(3);
   }
 
+#if DEBUG_LOG
   if (acc.length()) {
     acc.replace("\r", "");
     Serial.print(acc);
   }
+#endif
 
   return r;
 }
@@ -368,7 +407,6 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
                         uint8_t batPercent) {
   char payload[80];
 
-  // 17 octets : 8 champs uint16/int16 + 1 champ uint8
   sprintf(payload, "%04X%04X%04X%04X%04X%04X%04X%04X%02X",
           (uint16_t)tInt1Val, (uint16_t)tInt2Val,
           (uint16_t)tDht1Val, (uint16_t)hDht1Val,
@@ -376,16 +414,13 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
           luxVal, (uint16_t)poidsVal,
           batPercent);
 
-  Serial.print("Payload LoRa : ");
-  Serial.println(payload);
-
-  TxResult r = envoyerPayloadLoRa(payload, 30000);
+  TxResult r = envoyerPayloadLoRa(payload, LORA_TX_TIMEOUT_MS);
   if (r.done) return true;
 
   if (r.joinNeeded) {
-    if (!joinNetwork(30000)) { loraJoined = false; return false; }
+    if (!joinNetwork(LORA_JOIN_TIMEOUT_MS)) { loraJoined = false; return false; }
     loraJoined = true;
-    r = envoyerPayloadLoRa(payload, 30000);
+    r = envoyerPayloadLoRa(payload, LORA_TX_TIMEOUT_MS);
     return r.done;
   }
 
@@ -393,32 +428,38 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
 }
 
 // =============================================================
-// 9) SETUP / LOOP
+// 10) SETUP / LOOP
 // =============================================================
 
 void setup() {
+#if DEBUG_LOG
   Serial.begin(115200);
   delay(200);
+#else
+  DBG_BEGIN(0);
+#endif
 
   buzzerInit();
 
-  // Mélodie uniquement au premier démarrage (pas aux réveils deep sleep)
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
     playMelodyStartup();
   }
 
-  // Low power : WiFi + BT OFF
   WiFi.mode(WIFI_OFF);
   btStop();
 
   setupLoadSwitch();
   setupBattery();
   setupLoRa();
+
+  // Au repos : éviter back-powering dès le départ
+  sensorPinsHiZ();
 }
 
 void loop() {
   powerSensorsOn();
+  sensorPinsNormal();
   initAllSensorsAfterPowerOn();
 
   float poids = getWeight();
@@ -446,14 +487,6 @@ void loop() {
   bool okDHT1 = (!isnan(tDHT1) && !isnan(hDHT1));
   bool okDHT2 = (!isnan(tDHT2) && !isnan(hDHT2));
 
-  Serial.print("DS18B20 (1) : "); Serial.println((tInt1 != DEVICE_DISCONNECTED_C) ? String(tInt1) + " C" : "Err");
-  Serial.print("DS18B20 (2) : "); Serial.println((tInt2 != DEVICE_DISCONNECTED_C) ? String(tInt2) + " C" : "Err");
-  Serial.print("DHT22 (P27) : "); Serial.println(okDHT1 ? String(tDHT1) + " C | " + String(hDHT1) + " %" : "Err");
-  Serial.print("DHT22 (P19) : "); Serial.println(okDHT2 ? String(tDHT2) + " C | " + String(hDHT2) + " %" : "Err");
-  Serial.print("BH1750      : "); Serial.println(String(lux) + " lux");
-  Serial.print("HX711       : "); Serial.println(String(poids, 3) + " kg");
-  Serial.print("BATT        : "); Serial.println(String(batP) + " %");
-
   int16_t tInt1Val = (tInt1 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt1, 10.0f, SENTINEL_I16) : SENTINEL_I16;
   int16_t tInt2Val = (tInt2 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
 
@@ -464,12 +497,12 @@ void loop() {
   int16_t hDht2Val = okDHT2 ? to_i16_scaled(hDHT2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
 
   uint16_t luxVal   = to_u16_clamped(lux);
-  int16_t  poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16); // kg*100, négatifs OK
+  int16_t  poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16);
 
   uint8_t batPercent = (batP < 0) ? 0 : (batP > 100) ? 100 : (uint8_t)batP;
 
   if (!loraJoined) {
-    loraJoined = joinNetwork(30000);
+    loraJoined = joinNetwork(LORA_JOIN_TIMEOUT_MS);
   }
 
   if (loraJoined) {
@@ -477,11 +510,16 @@ void loop() {
                        luxVal, poidsVal, batPercent);
   }
 
+  // OFF capteurs + pins Hi-Z pour empêcher l’alim via DATA
+  sensorPinsHiZ();
   powerSensorsOff();
+
   loraLowPower();
   buzzerOff();
 
+#if DEBUG_LOG
   Serial.flush();
+#endif
 
   esp_sleep_enable_timer_wakeup((uint64_t)SLEEP_PERIOD_SEC * 1000000ULL);
   esp_deep_sleep_start();
