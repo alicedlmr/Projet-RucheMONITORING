@@ -1,0 +1,49 @@
+function decodeUplink(input) {
+  var data = {};
+  data.key = "xeusz84ejntuzftd";
+
+  function s16(i) {
+    var v = (input.bytes[i] << 8) | input.bytes[i + 1];
+    if (v > 32767) v -= 65536;
+    return v;
+  }
+  
+  function u16(i) {
+    return (input.bytes[i] << 8) | input.bytes[i + 1];
+  }
+
+  if (input.bytes && input.bytes.length >= 17) {
+    var tInt1 = s16(0);  
+    if (tInt1 !== 32767) data.t_1 = tInt1 / 10.0;
+    
+    var tInt2 = s16(2);  
+    if (tInt2 !== 32767) data.t_3 = tInt2 / 10.0;
+
+    var tDht1 = s16(4);  
+    if (tDht1 !== 32767) data.t_i = tDht1 / 10.0;
+    
+    var hDht1 = s16(6);  
+    if (hDht1 !== 32767) data.h = hDht1 / 10.0;
+
+    var tDht2 = s16(8);  
+    if (tDht2 !== 32767) data.t_2 = tDht2 / 10.0;
+    
+    var hDht2 = s16(10); 
+    if (hDht2 !== 32767) data.h_i = hDht2 / 10.0;
+
+    data.l = u16(12);
+
+    var w = s16(14);
+    data.weight_kg = w / 100.0;
+
+    data.bv = input.bytes[16]; 
+  }
+
+  data.rssi = -65;
+
+  return { 
+    data: data, 
+    warnings: [], 
+    errors: [] 
+  };
+}
