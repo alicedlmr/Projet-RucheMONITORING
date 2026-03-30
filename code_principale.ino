@@ -58,6 +58,8 @@ RTC_DATA_ATTR bool loraJoined = false;
 
 HX711 scale;
 BH1750 lightMeter;
+bool bh_ok = false;
+
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
@@ -150,7 +152,7 @@ void setupScale() {
 
 void setupLight() {
   Wire.begin(I2C_SDA, I2C_SCL);
-  lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+  bh_ok = lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
 }
 
 void setupTempInt() {
@@ -261,18 +263,28 @@ void setupLoRa() {
 // 7) LECTURES
 // =============================================================
 
-float getWeight() {
+float getWeight(bool &ok) {
+  ok = true;
+
   const int n = 5;
   long sum = 0;
+
   for (int i = 0; i < n; i++) {
-    while (!scale.is_ready()) delay(5);
+    uint32_t t0 = millis();
+    while (!scale.is_ready()) {
+      if (millis() - t0 > 500) {
+        ok = false;
+        return 0.0f;
+      }
+      delay(5);
+    }
     sum += scale.read();
   }
+
   long rawAvg = sum / n;
 
   float w = (float)(SCALE_SIGN * (rawAvg - SCALE_OFFSET)) / SCALE_FACTOR;
 
-  // Poids jamais négatif
   if (w < 0.0f) w = 0.0f;
 
   return w;
@@ -417,8 +429,10 @@ void loop() {
   powerSensorsOn();
   initAllSensorsAfterPowerOn();
 
-  float poids = getWeight();  // jamais négatif
-  float lux   = getLux();
+  bool okHX = false;
+  float poids = getWeight(okHX);
+
+  float lux = bh_ok ? getLux() : 0.0f;
 
   float tDHT1, hDHT1, tDHT2, hDHT2;
   getDHT(tDHT1, hDHT1, tDHT2, hDHT2);
@@ -446,8 +460,8 @@ void loop() {
   Serial.print("DS18B20 (2) : "); Serial.println((tInt2 != DEVICE_DISCONNECTED_C) ? String(tInt2) + " C" : "Err");
   Serial.print("DHT22 (P27) : "); Serial.println(okDHT1 ? String(tDHT1) + " C | " + String(hDHT1) + " %" : "Err");
   Serial.print("DHT22 (P19) : "); Serial.println(okDHT2 ? String(tDHT2) + " C | " + String(hDHT2) + " %" : "Err");
-  Serial.print("BH1750      : "); Serial.println(String(lux) + " lux");
-  Serial.print("HX711       : "); Serial.println(String(poids, 3) + " kg");
+  Serial.print("BH1750      : "); Serial.println(bh_ok ? String(lux) + " lux" : "Err");
+  Serial.print("HX711       : "); Serial.println(okHX ? String(poids, 3) + " kg" : "Err");
   Serial.print("BATT        : "); Serial.println(String(batP) + " %");
 
   int16_t tInt1Val = (tInt1 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt1, 10.0f, SENTINEL_I16) : SENTINEL_I16;
@@ -459,17 +473,14 @@ void loop() {
   int16_t tDht2Val = okDHT2 ? to_i16_scaled(tDHT2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
   int16_t hDht2Val = okDHT2 ? to_i16_scaled(hDHT2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
 
-  uint16_t luxVal = to_u16_clamped(lux);
+  uint16_t luxVal = bh_ok ? to_u16_clamped(lux) : 0;
 
-  // Poids jamais négatif (double sécurité)
   int16_t poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16);
   if (poidsVal < 0) poidsVal = 0;
 
   uint8_t batPercent = (batP < 0) ? 0 : (batP > 100) ? 100 : (uint8_t)batP;
 
-  // =============================================================
-  // OPTION 1 : couper capteurs AVANT d'attendre la fin LoRa
-  // =============================================================
+  // Couper capteurs avant attente LoRa
   powerSensorsOff();
 
   if (!loraJoined) {
