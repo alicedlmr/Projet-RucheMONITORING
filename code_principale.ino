@@ -63,11 +63,6 @@ bool bh_ok = false;
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
-DeviceAddress tempDeviceAddress1;
-DeviceAddress tempDeviceAddress2;
-bool ds18_1_ok = false;
-bool ds18_2_ok = false;
-
 DHT dht1(DHT1_PIN, DHTTYPE);
 DHT dht2(DHT2_PIN, DHTTYPE);
 
@@ -157,26 +152,9 @@ void setupLight() {
 
 void setupTempInt() {
   sensors.begin();
-  int count = sensors.getDeviceCount();
-
-  ds18_1_ok = false;
-  ds18_2_ok = false;
-
-  const uint8_t RES = 10;
-
-  if (count >= 1) {
-    if (sensors.getAddress(tempDeviceAddress1, 0)) {
-      sensors.setResolution(tempDeviceAddress1, RES);
-      ds18_1_ok = true;
-    }
-  }
-
-  if (count >= 2) {
-    if (sensors.getAddress(tempDeviceAddress2, 1)) {
-      sensors.setResolution(tempDeviceAddress2, RES);
-      ds18_2_ok = true;
-    }
-  }
+  // Pas besoin de stocker d'adresses : lecture par index dans loop()
+  // (plus robuste quand 1 seul capteur est connecté)
+  sensors.setWaitForConversion(true);
 }
 
 void setupDHT() {
@@ -284,7 +262,6 @@ float getWeight(bool &ok) {
   long rawAvg = sum / n;
 
   float w = (float)(SCALE_SIGN * (rawAvg - SCALE_OFFSET)) / SCALE_FACTOR;
-
   if (w < 0.0f) w = 0.0f;
 
   return w;
@@ -439,17 +416,20 @@ void loop() {
 
   int batP = getBatteryPercent();
 
+  // --- DS18B20 : lecture robuste par index ---
+  int dsCount = sensors.getDeviceCount();
+
   float tInt1 = DEVICE_DISCONNECTED_C;
   float tInt2 = DEVICE_DISCONNECTED_C;
 
   sensors.requestTemperatures();
 
-  if (ds18_1_ok) {
-    tInt1 = sensors.getTempC(tempDeviceAddress1);
+  if (dsCount >= 1) {
+    tInt1 = sensors.getTempCByIndex(0);
     if (tInt1 == 85.0f) tInt1 = DEVICE_DISCONNECTED_C;
   }
-  if (ds18_2_ok) {
-    tInt2 = sensors.getTempC(tempDeviceAddress2);
+  if (dsCount >= 2) {
+    tInt2 = sensors.getTempCByIndex(1);
     if (tInt2 == 85.0f) tInt2 = DEVICE_DISCONNECTED_C;
   }
 
@@ -480,7 +460,6 @@ void loop() {
 
   uint8_t batPercent = (batP < 0) ? 0 : (batP > 100) ? 100 : (uint8_t)batP;
 
-  // Couper capteurs avant attente LoRa
   powerSensorsOff();
 
   if (!loraJoined) {
