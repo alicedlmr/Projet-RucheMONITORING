@@ -3,7 +3,7 @@
 #include <WebServer.h>
 
 #define VBAT_PIN 35
-const float VBAT_RATIO   = 1.435f;   // valeur provisoire à recalibrer
+const float VBAT_RATIO   = 1.407f;   // valeur recalibrée
 const int   VBAT_SAMPLES = 30;
 
 const char* WIFI_SSID = "TON_WIFI";
@@ -83,7 +83,7 @@ void connectWiFi() {
     Serial.print("IP locale : ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("Echec connexion WiFi");
+    Serial.println("Échec connexion WiFi");
   }
 }
 
