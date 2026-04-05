@@ -56,23 +56,12 @@ const int   VBAT_SAMPLES = 30;
 
 const int16_t SENTINEL_I16 = 32767;
 
-// --- Mode nuit ---
+// --- Mode nuit uniquement par lux ---
 const float    LUX_NIGHT_THRESHOLD = 20.0f;
-const uint8_t  NIGHT_MAX_SENDS     = 15;
 const uint16_t NIGHT_PERIOD_MIN    = 45;
 const uint16_t LOW_BATT_PERIOD_MIN = 60;
 
-// Gardé si jamais on force le mode TIME
-const uint16_t NIGHT_START_MIN = 21 * 60;   // 21:00
-const uint16_t NIGHT_END_MIN   = 4 * 60;    // 04:00
-
-// --- Enums ---
-enum NightMode : uint8_t {
-  NIGHT_AUTO = 0,
-  NIGHT_LUX  = 1,
-  NIGHT_TIME = 2
-};
-
+// --- Modes envoyés dans le payload ---
 enum RunMode : uint8_t {
   RUN_NORMAL   = 0,
   RUN_OVERRIDE = 1,
@@ -83,24 +72,15 @@ enum RunMode : uint8_t {
 // --- Valeurs par défaut ---
 const uint16_t DEFAULT_HIGH_PERIOD_MIN = 10;
 const uint16_t DEFAULT_OVERRIDE_MIN    = 10;
-const uint16_t DEFAULT_MINUTE_OF_DAY   = 12 * 60;
-const uint8_t  DEFAULT_NIGHT_MODE      = NIGHT_LUX;
 
 // --- RTC DATA ---
 RTC_DATA_ATTR uint16_t highPeriodMin = DEFAULT_HIGH_PERIOD_MIN;
 RTC_DATA_ATTR bool loraJoined = false;
 
-RTC_DATA_ATTR uint16_t rtc_minute_of_day = DEFAULT_MINUTE_OF_DAY;
-RTC_DATA_ATTR bool     time_synced       = false;
+RTC_DATA_ATTR bool     nightActive    = false;
 
-RTC_DATA_ATTR bool     nightActive     = false;
-RTC_DATA_ATTR bool     nightUsedToday  = false;
-RTC_DATA_ATTR uint8_t  nightSendCount  = 0;
-
-RTC_DATA_ATTR bool     periodOverride  = false;
-RTC_DATA_ATTR uint16_t overrideMin     = DEFAULT_OVERRIDE_MIN;
-
-RTC_DATA_ATTR uint8_t nightMode = DEFAULT_NIGHT_MODE;
+RTC_DATA_ATTR bool     periodOverride = false;
+RTC_DATA_ATTR uint16_t overrideMin    = DEFAULT_OVERRIDE_MIN;
 
 // --- Alerte essaimage ---
 RTC_DATA_ATTR float    lastWeightKg     = -1.0f;
@@ -110,9 +90,10 @@ const float    SWARM_DROP_KG    = 1.5f;
 const uint16_t SWARM_MAX_DT_MIN = 60;
 
 // --- Accusé du dernier downlink reçu ---
-RTC_DATA_ATTR uint8_t lastDlCmd  = 0;
-RTC_DATA_ATTR uint8_t lastDlArg1 = 0;
-RTC_DATA_ATTR uint8_t lastDlArg2 = 0;
+RTC_DATA_ATTR uint8_t lastDlCmd    = 0;
+RTC_DATA_ATTR uint8_t lastDlArg1   = 0;
+RTC_DATA_ATTR uint8_t lastDlArg2   = 0;
+RTC_DATA_ATTR uint8_t lastDlStatus = 0;  // 0=none, 1=applied, 2=invalid/ignored
 
 // =============================================================
 // 2) OBJETS
@@ -301,13 +282,10 @@ void setupLoRa() {
 }
 
 // Downlink commands (Port 1):
-// 01 mm      : override période (minutes)
-// 02 hi lo   : set time (minutes since midnight)
-// 03         : force night start
-// 04         : force night stop
-// 05 mm      : set highPeriodMin (10 or 15)
-// 06 vv      : set nightMode (00=AUTO,01=LUX,02=TIME)
-// 07         : reset config to defaults
+// 01 mm : override période (minutes)
+// 05 mm : set highPeriodMin (10 or 15)
+// 07    : reset config to defaults
+// 08    : clear override
 
 bool hexByte(const char *p, uint8_t &out) {
   auto h = [](char c)->int {
@@ -368,15 +346,10 @@ bool extractDownlink(const String &acc, int &port, String &hex) {
 }
 
 void resetConfigToDefaults() {
-  highPeriodMin     = DEFAULT_HIGH_PERIOD_MIN;
-  periodOverride    = false;
-  overrideMin       = DEFAULT_OVERRIDE_MIN;
-  nightMode         = DEFAULT_NIGHT_MODE;
-  rtc_minute_of_day = DEFAULT_MINUTE_OF_DAY;
-  time_synced       = false;
-  nightActive       = false;
-  nightUsedToday    = false;
-  nightSendCount    = 0;
+  highPeriodMin   = DEFAULT_HIGH_PERIOD_MIN;
+  periodOverride  = false;
+  overrideMin     = DEFAULT_OVERRIDE_MIN;
+  nightActive     = false;
 }
 
 void applyDownlink(int port, const String &hex) {
@@ -392,60 +365,41 @@ void applyDownlink(int port, const String &hex) {
   if (hex.length() >= 4) hexByte(hex.c_str() + 2, arg1);
   if (hex.length() >= 6) hexByte(hex.c_str() + 4, arg2);
 
-  // On mémorise toujours le dernier downlink reçu
-  lastDlCmd  = cmd;
-  lastDlArg1 = arg1;
-  lastDlArg2 = arg2;
+  lastDlCmd    = cmd;
+  lastDlArg1   = arg1;
+  lastDlArg2   = arg2;
+  lastDlStatus = 2; // invalid par défaut
 
   if (cmd == 0x01 && hex.length() >= 4) {
     uint8_t mm = arg1;
     if (mm >= 1) {
       overrideMin = mm;
       periodOverride = true;
+      lastDlStatus = 1;
       Serial.print("DL: override period=");
       Serial.print(overrideMin);
       Serial.println(" min");
     }
   }
-  else if (cmd == 0x02 && hex.length() >= 6) {
-    uint16_t m = (uint16_t)((arg1 << 8) | arg2);
-    if (m < 1440) {
-      rtc_minute_of_day = m;
-      time_synced = true;
-      Serial.print("DL: time sync minute_of_day=");
-      Serial.println(rtc_minute_of_day);
-    }
-  }
-  else if (cmd == 0x03) {
-    nightActive = true;
-    nightUsedToday = true;
-    nightSendCount = 0;
-    Serial.println("DL: force NIGHT START");
-  }
-  else if (cmd == 0x04) {
-    nightActive = false;
-    nightSendCount = 0;
-    Serial.println("DL: force NIGHT STOP");
-  }
   else if (cmd == 0x05 && hex.length() >= 4) {
     uint8_t mm = arg1;
     if (mm == 10 || mm == 15) {
       highPeriodMin = mm;
+      lastDlStatus = 1;
       Serial.print("DL: highPeriodMin=");
       Serial.println(highPeriodMin);
     }
   }
-  else if (cmd == 0x06 && hex.length() >= 4) {
-    uint8_t vv = arg1;
-    if (vv <= 2) {
-      nightMode = vv;
-      Serial.print("DL: nightMode=");
-      Serial.println((int)nightMode);
-    }
-  }
   else if (cmd == 0x07) {
     resetConfigToDefaults();
+    lastDlStatus = 1;
     Serial.println("DL: RESET TO DEFAULTS");
+  }
+  else if (cmd == 0x08) {
+    periodOverride = false;
+    overrideMin = DEFAULT_OVERRIDE_MIN;
+    lastDlStatus = 1;
+    Serial.println("DL: OVERRIDE CLEARED");
   }
 }
 
@@ -544,60 +498,11 @@ int getBatteryPercentFromMilliVolts(uint16_t mv) {
 // 8) MODE NUIT + SCHEDULER
 // =============================================================
 
-bool isNightByTime(uint16_t minuteOfDay) {
-  return (minuteOfDay >= NIGHT_START_MIN) || (minuteOfDay < NIGHT_END_MIN);
-}
-
-void resetNightUsedIfNeeded() {
-  if (time_synced) {
-    if (rtc_minute_of_day >= 8 * 60 && rtc_minute_of_day < 10 * 60) {
-      nightUsedToday = false;
-    }
-  }
-}
-
-void updateNightState(int batP, float lux) {
-  if (batP < 20) {
+void updateNightState(float lux) {
+  if (bh_ok && lux >= 0) {
+    nightActive = (lux < LUX_NIGHT_THRESHOLD);
+  } else {
     nightActive = false;
-    nightSendCount = 0;
-    return;
-  }
-
-  resetNightUsedIfNeeded();
-
-  bool nightDetected = false;
-
-  if (nightMode == NIGHT_LUX) {
-    if (bh_ok && lux >= 0) nightDetected = (lux < LUX_NIGHT_THRESHOLD);
-    else nightDetected = false;
-  }
-  else if (nightMode == NIGHT_TIME) {
-    if (time_synced) nightDetected = isNightByTime(rtc_minute_of_day);
-    else nightDetected = false;
-  }
-  else { // AUTO
-    if (bh_ok && lux >= 0) nightDetected = (lux < LUX_NIGHT_THRESHOLD);
-    else if (time_synced) nightDetected = isNightByTime(rtc_minute_of_day);
-    else nightDetected = false;
-  }
-
-  if (!nightActive && !nightUsedToday && nightDetected) {
-    nightActive = true;
-    nightUsedToday = true;
-    nightSendCount = 0;
-    Serial.println("NIGHT: start");
-  }
-
-  if (nightActive) {
-    if (!nightDetected) {
-      nightActive = false;
-      nightSendCount = 0;
-      Serial.println("NIGHT: stop (day detected)");
-    } else if (nightSendCount >= NIGHT_MAX_SENDS) {
-      nightActive = false;
-      nightSendCount = 0;
-      Serial.println("NIGHT: stop (max sends)");
-    }
   }
 }
 
@@ -622,8 +527,8 @@ uint16_t computePeriodMin(int batP) {
 
 // =============================================================
 // 9) ENVOI LORA
-// Payload = 24 octets
-// tInt1,tInt2,tDht1,hDht1,tDht2,hDht2,lux,poids,bat%,swarm,runMode,vbat_mV,lastDlCmd,lastDlArg1,lastDlArg2
+// Payload = 25 octets
+// tInt1,tInt2,tDht1,hDht1,tDht2,hDht2,lux,poids,bat%,swarm,runMode,vbat_mV,lastDlCmd,lastDlArg1,lastDlArg2,lastDlStatus
 // =============================================================
 
 TxResult envoyerPayloadLoRa(const char *payloadHex, uint32_t timeoutMs) {
@@ -703,10 +608,11 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
                         uint16_t vbat_mV,
                         uint8_t dlCmd,
                         uint8_t dlArg1,
-                        uint8_t dlArg2) {
+                        uint8_t dlArg2,
+                        uint8_t dlStatus) {
   char payload[128];
 
-  sprintf(payload, "%04X%04X%04X%04X%04X%04X%04X%04X%02X%02X%02X%04X%02X%02X%02X",
+  sprintf(payload, "%04X%04X%04X%04X%04X%04X%04X%04X%02X%02X%02X%04X%02X%02X%02X%02X",
           (uint16_t)tInt1Val, (uint16_t)tInt2Val,
           (uint16_t)tDht1Val, (uint16_t)hDht1Val,
           (uint16_t)tDht2Val, (uint16_t)hDht2Val,
@@ -717,7 +623,8 @@ bool envoyerDonneesLoRa(int16_t tInt1Val, int16_t tInt2Val,
           vbat_mV,
           dlCmd,
           dlArg1,
-          dlArg2);
+          dlArg2,
+          dlStatus);
 
   Serial.print("Payload LoRa : ");
   Serial.println(payload);
@@ -771,7 +678,6 @@ void loop() {
   powerSensorsOn();
   initAllSensorsAfterPowerOn();
 
-  // --- Capteurs ---
   bool okHX = false;
   float poids = getWeight(okHX);
 
@@ -803,17 +709,14 @@ void loop() {
   bool okDHT1 = (!isnan(tDHT1) && !isnan(hDHT1));
   bool okDHT2 = (!isnan(tDHT2) && !isnan(hDHT2));
 
-  // --- Etat courant avant envoi ---
-  updateNightState(batP, lux);
+  updateNightState(lux);
 
-  // --- Essaimage ---
   uint8_t swarmAlert = 0;
   if (lastWeightKg >= 0.0f && lastWeightAgeMin <= SWARM_MAX_DT_MIN) {
     float delta = poids - lastWeightKg;
     if (delta <= -SWARM_DROP_KG) swarmAlert = 1;
   }
 
-  // --- Encodage ---
   int16_t tInt1Val = (tInt1 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt1, 10.0f, SENTINEL_I16) : SENTINEL_I16;
   int16_t tInt2Val = (tInt2 != DEVICE_DISCONNECTED_C) ? to_i16_scaled(tInt2, 10.0f, SENTINEL_I16) : SENTINEL_I16;
 
@@ -830,20 +733,16 @@ void loop() {
 
   uint8_t batPercent = (batP < 0) ? 0 : (batP > 100) ? 100 : (uint8_t)batP;
 
-  // Mode envoyé dans l'uplink courant
   uint8_t runModePayload = computeRunMode(batP);
 
   powerSensorsOff();
-
-  bool uplinkSent = false;
-  bool nightWasActiveBeforeTx = nightActive;
 
   if (!loraJoined) {
     loraJoined = joinNetwork(30000);
   }
 
   if (loraJoined) {
-    uplinkSent = envoyerDonneesLoRa(
+    envoyerDonneesLoRa(
       tInt1Val, tInt2Val,
       tDht1Val, hDht1Val,
       tDht2Val, hDht2Val,
@@ -854,24 +753,19 @@ void loop() {
       vbat_mV,
       lastDlCmd,
       lastDlArg1,
-      lastDlArg2
+      lastDlArg2,
+      lastDlStatus
     );
   }
 
-  // IMPORTANT : on recalcule après le downlink éventuellement reçu
-  updateNightState(batP, lux);
+  // Recalcul après éventuel downlink
+  updateNightState(lux);
 
   uint16_t periodMin = computePeriodMin(batP);
   uint32_t sleepSec  = (uint32_t)periodMin * 60UL;
 
-  if (uplinkSent && nightWasActiveBeforeTx) {
-    nightSendCount++;
-  }
-
   lastWeightKg = poids;
   lastWeightAgeMin = periodMin;
-
-  rtc_minute_of_day = (uint16_t)((rtc_minute_of_day + periodMin) % 1440);
 
   loraLowPower();
   buzzerOff();
