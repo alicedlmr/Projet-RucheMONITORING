@@ -712,7 +712,7 @@ void loop() {
   updateNightState(lux);
 
   uint8_t swarmAlert = 0;
-  if (lastWeightKg >= 0.0f && lastWeightAgeMin <= SWARM_MAX_DT_MIN) {
+  if (okHX && lastWeightKg >= 0.0f && lastWeightAgeMin <= SWARM_MAX_DT_MIN) {
     float delta = poids - lastWeightKg;
     if (delta <= -SWARM_DROP_KG) swarmAlert = 1;
   }
@@ -728,8 +728,13 @@ void loop() {
 
   uint16_t luxVal = bh_ok ? to_u16_clamped(lux) : 0;
 
-  int16_t poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16);
-  if (poidsVal < 0) poidsVal = 0;
+  int16_t poidsVal;
+  if (okHX) {
+    poidsVal = to_i16_scaled(poids, 100.0f, SENTINEL_I16);
+    if (poidsVal < 0) poidsVal = 0;
+  } else {
+    poidsVal = SENTINEL_I16;
+  }
 
   uint8_t batPercent = (batP < 0) ? 0 : (batP > 100) ? 100 : (uint8_t)batP;
 
@@ -764,8 +769,13 @@ void loop() {
   uint16_t periodMin = computePeriodMin(batP);
   uint32_t sleepSec  = (uint32_t)periodMin * 60UL;
 
-  lastWeightKg = poids;
-  lastWeightAgeMin = periodMin;
+  if (okHX) {
+    lastWeightKg = poids;
+    lastWeightAgeMin = periodMin;
+  } else {
+    if (lastWeightAgeMin < 9999 - periodMin) lastWeightAgeMin += periodMin;
+    else lastWeightAgeMin = 9999;
+  }
 
   loraLowPower();
   buzzerOff();
