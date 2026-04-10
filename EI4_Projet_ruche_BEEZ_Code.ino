@@ -46,7 +46,7 @@ const float WEIGHT_B = 5.3509883f;
 #define DHTTYPE DHT22
 
 #define VBAT_PIN 35
-const float VBAT_RATIO   = 1.407f;   // calibré
+const float VBAT_RATIO   = 1.368f;   // recalé avec multimètre
 const int   VBAT_SAMPLES = 30;
 
 #define RX2_PIN 16
@@ -69,6 +69,13 @@ enum RunMode : uint8_t {
   RUN_NIGHT    = 3
 };
 
+// --- Forçage du mode nuit par downlink ---
+enum NightForceMode : uint8_t {
+  NIGHT_FORCE_AUTO = 0,
+  NIGHT_FORCE_ON   = 1,
+  NIGHT_FORCE_OFF  = 2
+};
+
 // --- Valeurs par défaut ---
 const uint16_t DEFAULT_HIGH_PERIOD_MIN = 10;
 const uint16_t DEFAULT_OVERRIDE_MIN    = 10;
@@ -78,6 +85,7 @@ RTC_DATA_ATTR uint16_t highPeriodMin = DEFAULT_HIGH_PERIOD_MIN;
 RTC_DATA_ATTR bool loraJoined = false;
 
 RTC_DATA_ATTR bool     nightActive    = false;
+RTC_DATA_ATTR uint8_t  nightForceMode = NIGHT_FORCE_AUTO;
 
 RTC_DATA_ATTR bool     periodOverride = false;
 RTC_DATA_ATTR uint16_t overrideMin    = DEFAULT_OVERRIDE_MIN;
@@ -283,6 +291,8 @@ void setupLoRa() {
 
 // Downlink commands (Port 1):
 // 01 mm : override période (minutes)
+// 03    : force mode nuit ON
+// 04    : force mode nuit OFF
 // 05 mm : set highPeriodMin (10 or 15)
 // 07    : reset config to defaults
 // 08    : clear override
@@ -350,6 +360,7 @@ void resetConfigToDefaults() {
   periodOverride  = false;
   overrideMin     = DEFAULT_OVERRIDE_MIN;
   nightActive     = false;
+  nightForceMode  = NIGHT_FORCE_AUTO;
 }
 
 void applyDownlink(int port, const String &hex) {
@@ -380,6 +391,18 @@ void applyDownlink(int port, const String &hex) {
       Serial.print(overrideMin);
       Serial.println(" min");
     }
+  }
+  else if (cmd == 0x03) {
+    nightForceMode = NIGHT_FORCE_ON;
+    nightActive = true;
+    lastDlStatus = 1;
+    Serial.println("DL: FORCE NIGHT ON");
+  }
+  else if (cmd == 0x04) {
+    nightForceMode = NIGHT_FORCE_OFF;
+    nightActive = false;
+    lastDlStatus = 1;
+    Serial.println("DL: FORCE NIGHT OFF");
   }
   else if (cmd == 0x05 && hex.length() >= 4) {
     uint8_t mm = arg1;
@@ -499,6 +522,16 @@ int getBatteryPercentFromMilliVolts(uint16_t mv) {
 // =============================================================
 
 void updateNightState(float lux) {
+  if (nightForceMode == NIGHT_FORCE_ON) {
+    nightActive = true;
+    return;
+  }
+
+  if (nightForceMode == NIGHT_FORCE_OFF) {
+    nightActive = false;
+    return;
+  }
+
   if (bh_ok && lux >= 0) {
     nightActive = (lux < LUX_NIGHT_THRESHOLD);
   } else {
