@@ -248,11 +248,12 @@ Format :
 
 où mm est le nombre de minutes en hexadécimal.
 
-## Exemples :
-	-	01 01 → 1 min
-	-	01 0A → 10 min
-	-	01 1E → 30 min
-	-	01 3C → 60 min
+Exemples :
+
+- 01 01 → 1 min
+- 01 0A → 10 min
+- 01 1E → 30 min
+- 01 3C → 60 min
 
 ---
 
