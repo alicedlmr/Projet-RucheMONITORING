@@ -91,16 +91,20 @@ Le but du projet est de surveiller l’état d’une ruche à distance à l’ai
 
 ## Structure du dépôt
 
-Exemples de fichiers présents dans le dépôt :
+**Branche `main` :** 
+fichiers présents dans le dépôt :
 
 - `EI4_Projet_ruche_BEEZ_Code.ino` : firmware principal
-- `code_principale.ino` : autre version du code
-- `codetestfinal.ino` : version de test
-- `Code-Jalon-1.ino` : première étape du projet
-- `payload_ttn.json` : decoder TTN simple
 - `EI4_Projet_ruche_BEEE_Code_ttn.json` : decoder TTN étendu
-- `Ubidots Decoder` : éléments liés à l’intégration Ubidots
-- `test batterie` : tests liés à la mesure batterie
+- `Ubidots Decoder` : decoder liés à l’intégration Ubidots
+
+**Branche `code-capteur` :** 
+
+Cette branche contient les codes unitaires permettant de tester chaque capteur. 
+
+**Branche `code-de-test-complet` :**
+
+Cette branche contient les versions de code incomplètes utilisées pour les tests avant d’aboutir au code principal présent dans la branche `main`.
 
 ---
 
