@@ -388,7 +388,7 @@ Le projet peut être connecté à :
 	-	TTN
 	-	BEEP
 	-	Ubidots
-
+	
 Les fichiers de decoders fournis dans le dépôt permettent d’adapter les noms des champs selon la plateforme utilisée.
 
 ---
