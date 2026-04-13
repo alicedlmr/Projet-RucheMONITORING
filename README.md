@@ -174,7 +174,6 @@ Cela met le champ `swarm = 1`.
 
 La tension batterie est calculée à partir de l’ADC de l’ESP32 avec un facteur de calibration :
 
-```cpp
 const float VBAT_RATIO = 1.36f;
 
 Le pourcentage batterie est calculé à partir de la tension mesurée en mV.
@@ -192,7 +191,7 @@ Exemple de seuils :
 
 ---
 
-Payload envoyé vers TTN
+## Payload envoyé vers TTN
 
 Le firmware envoie un payload enrichi contenant :
 	•	températures DS18B20
@@ -205,7 +204,7 @@ Le firmware envoie un payload enrichi contenant :
 	•	tension batterie
 	•	informations sur le dernier downlink reçu
 
-Champs décodés côté TTN
+**Champs décodés côté TTN**
 
 Exemple de champs obtenus selon le decoder utilisé :
 	•	t_1
@@ -229,7 +228,7 @@ Exemple de champs obtenus selon le decoder utilisé :
 
 ---
 
-Signification de run_mode
+## Signification de run_mode
 	•	0 → normal
 	•	1 → override
 	•	2 → low_battery
@@ -237,11 +236,11 @@ Signification de run_mode
 
 ---
 
-Downlinks TTN disponibles
+## Downlinks TTN disponibles
 
 Les downlinks se font sur FPort 1.
 
-1. Override de la période d’envoi
+## 1. Override de la période d’envoi
 
 Format :
 
@@ -257,7 +256,7 @@ Exemples :
 
 ---
 
-2. Forcer le mode nuit ON
+## 2. Forcer le mode nuit ON
 
 03
 
@@ -266,7 +265,7 @@ Effet :
 
 ---
 
-3. Forcer le mode nuit OFF
+## 3. Forcer le mode nuit OFF
 
 04
 
@@ -275,7 +274,7 @@ Effet :
 
 ---
 
-4. Changer la période haute batterie
+## 4. Changer la période haute batterie
 
 Format :
 
@@ -287,7 +286,7 @@ Valeurs acceptées :
 
 ---
 
-5. Reset de la configuration
+## 5. Reset de la configuration
 
 07
 
@@ -298,7 +297,7 @@ Effet :
 
 ---
 
-6. Supprimer seulement l’override
+## 6. Supprimer seulement l’override
 
 08
 
@@ -308,7 +307,7 @@ Effet :
 
 ---
 
-Comment envoyer un downlink sur TTN
+## Comment envoyer un downlink sur TTN
 
 Dans TTN :
 	1.	Ouvrir le device
@@ -328,23 +327,23 @@ ou :
 
 ---
 
-Installation / utilisation
+## Installation / utilisation
 
-1. Cloner le dépôt
+**1. Cloner le dépôt**
 
 git clone https://github.com/alicedlmr/Projet-RucheMONITORING.git
 
-2. Ouvrir le projet
+**2. Ouvrir le projet**
 
 Ouvrir le fichier principal dans l’IDE Arduino :
 
 EI4_Projet_ruche_BEEZ_Code.ino
 
-3. Vérifier les bibliothèques
+**3. Vérifier les bibliothèques**
 
 Installer toutes les bibliothèques nécessaires.
 
-4. Vérifier les paramètres matériels
+**4. Vérifier les paramètres matériels**
 
 Adapter si besoin :
 	•	broches
@@ -352,38 +351,38 @@ Adapter si besoin :
 	•	calibration poids
 	•	seuil de luminosité
 
-5. Compiler et téléverser
+**5. Compiler et téléverser**
 
 Sélectionner la carte ESP32 correspondante puis téléverser.
 
 ---
 
-Calibration
+## Calibration
 
-Calibration poids
+**Calibration poids**
 
 Le poids est calculé avec :
-
+```cpp
 float w = (float)(SCALE_SIGN * (rawAvg - SCALE_OFFSET)) / SCALE_FACTOR;
 w = WEIGHT_A * w + WEIGHT_B;
-
+```
 Paramètres à ajuster si nécessaire :
 	•	SCALE_OFFSET
 	•	SCALE_FACTOR
 	•	WEIGHT_A
 	•	WEIGHT_B
 
-Calibration batterie
+**Calibration batterie**
 
 Le paramètre à ajuster est :
-
+```cpp
 const float VBAT_RATIO = ...
-
+```
 Il doit être recalé à partir d’une mesure au multimètre.
 
 ---
 
-Intégration TTN / Webhooks
+## Intégration TTN / Webhooks
 
 Le projet peut être connecté à :
 	•	TTN
@@ -394,7 +393,7 @@ Les fichiers de decoders fournis dans le dépôt permettent d’adapter les noms
 
 ---
 
-Améliorations possibles
+## Améliorations possibles
 	•	amélioration du filtrage des données envoyées aux webhooks
 	•	meilleure gestion du RSSI / SNR
 	•	optimisation supplémentaire de la consommation
@@ -403,7 +402,7 @@ Améliorations possibles
 
 ---
 
-Auteurs :
+## Auteurs :
 
 Ahmed ELSHAZLY | Alice DELMAR | Georges SKAF | Madjid CHIKHI
 
