@@ -179,52 +179,52 @@ const float VBAT_RATIO = 1.36f;
 Le pourcentage batterie est calculé à partir de la tension mesurée en mV.
 
 Exemple de seuils :
-	-	4200 mV → 100%
-	-	4100 mV → 90%
-	-	4000 mV → 80%
-	-	3900 mV → 60%
-	-	3800 mV → 40%
-	-	3700 mV → 20%
-	-	3600 mV → 10%
-	-	3500 mV → 5%
-	-	3300 mV → 0%
+- 4200 mV → 100%
+- 4100 mV → 90%
+- 4000 mV → 80%
+- 3900 mV → 60%
+- 3800 mV → 40%
+- 3700 mV → 20%
+- 3600 mV → 10%
+- 3500 mV → 5%
+- 3300 mV → 0%
 
 ---
 
 ## Payload envoyé vers TTN
 
 Le firmware envoie un payload enrichi contenant :
-	- 	températures DS18B20
-	-   températures / humidités DHT
-	-	luminosité
-	-	poids
-	-	pourcentage batterie
-	-	alerte essaimage
-	-	mode de fonctionnement
-	-	tension batterie
-	-	informations sur le dernier downlink reçu
+- températures DS18B20
+- températures / humidités DHT
+- luminosité
+- poids
+- pourcentage batterie
+- alerte essaimage
+- mode de fonctionnement
+- tension batterie
+- informations sur le dernier downlink reçu
 
 **Champs décodés côté TTN**
 
 Exemple de champs obtenus selon le decoder utilisé :
-	-	t_1
-	-	t_3
-	-	t_i
-	-	h_i
-	-	t
-	-	h
-	-	l
-	-	weight_kg
-	-	bv
-	-	swarm
-	-	run_mode
-	-	run_mode_txt
-	-	vm
-	-	last_dl_cmd
-	-	last_dl_arg1
-	-	last_dl_arg2
-	-	last_dl_status
-	-	last_dl_status_txt
+- t_1
+- t_3
+- t_i
+- h_i
+- t
+- h
+- l
+- weight_kg
+- bv
+- swarm
+- run_mode
+- run_mode_txt
+- vm
+- last_dl_cmd
+- last_dl_arg1
+- last_dl_arg2
+- last_dl_status
+- last_dl_status_txt
 
 ---
 
@@ -248,7 +248,7 @@ Format :
 
 où mm est le nombre de minutes en hexadécimal.
 
-Exemples :
+## Exemples :
 	-	01 01 → 1 min
 	-	01 0A → 10 min
 	-	01 1E → 30 min
@@ -261,7 +261,7 @@ Exemples :
 03
 
 Effet :
-	-	force nightActive = true
+- force nightActive = true
 
 ---
 
@@ -270,7 +270,7 @@ Effet :
 04
 
 Effet :
-	-	force nightActive = false
+- force nightActive = false
 
 ---
 
@@ -281,8 +281,8 @@ Format :
 05 mm
 
 Valeurs acceptées :
-	-	05 0A → 10 min
-	-	05 0F → 15 min
+- 05 0A → 10 min
+- 05 0F → 15 min
 
 ---
 
@@ -291,9 +291,9 @@ Valeurs acceptées :
 07
 
 Effet :
-	-	reset de l’override
-	-	reset du forçage nuit
-	-	remise des paramètres par défaut
+- reset de l’override
+- reset du forçage nuit
+- remise des paramètres par défaut
 
 ---
 
@@ -302,8 +302,8 @@ Effet :
 08
 
 Effet :
-	-	supprime periodOverride
-	-	remet la période calculée automatiquement
+- supprime periodOverride
+- remet la période calculée automatiquement
 
 ---
 
@@ -346,10 +346,10 @@ Installer toutes les bibliothèques nécessaires.
 **4. Vérifier les paramètres matériels**
 
 Adapter si besoin :
-	-	broches
-	-	calibration batterie
-	-	calibration poids
-	-	seuil de luminosité
+- broches
+- calibration batterie
+- calibration poids
+- seuil de luminosité
 
 **5. Compiler et téléverser**
 
@@ -367,10 +367,10 @@ float w = (float)(SCALE_SIGN * (rawAvg - SCALE_OFFSET)) / SCALE_FACTOR;
 w = WEIGHT_A * w + WEIGHT_B;
 ```
 Paramètres à ajuster si nécessaire :
-	-	SCALE_OFFSET
-	-	SCALE_FACTOR
-	-	WEIGHT_A
-	-	WEIGHT_B
+- SCALE_OFFSET
+- SCALE_FACTOR
+- WEIGHT_A
+- WEIGHT_B
 
 **Calibration batterie**
 
@@ -385,9 +385,9 @@ Il doit être recalé à partir d’une mesure au multimètre.
 ## Intégration TTN / Webhooks
 
 Le projet peut être connecté à :
-	-	TTN
-	-	BEEP
-	-	Ubidots
+- TTN
+- BEEP
+- Ubidots
 	
 Les fichiers de decoders fournis dans le dépôt permettent d’adapter les noms des champs selon la plateforme utilisée.
 
